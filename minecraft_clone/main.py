@@ -4,7 +4,19 @@ import math
 import random
 
 try:
-    import noise
+    from opensimplex import OpenSimplex
+    _gen = OpenSimplex(seed=42)
+    _gen2 = OpenSimplex(seed=99)
+
+    def _octave_noise(x, y, gen, octaves=4, persistence=0.5):
+        value, amplitude, frequency, max_val = 0.0, 1.0, 1.0, 0.0
+        for _ in range(octaves):
+            value += gen.noise2(x * frequency, y * frequency) * amplitude
+            max_val += amplitude
+            amplitude *= persistence
+            frequency *= 2.0
+        return value / max_val
+
     HAS_NOISE = True
 except ImportError:
     HAS_NOISE = False
@@ -16,7 +28,7 @@ app = Ursina(
     size=(1280, 720),
 )
 
-# ── Couleurs des blocs ──────────────────────────────────────────────────────
+# -- Couleurs et noms des blocs -------------------------------------------------
 BLOCK_COLORS = {
     1: color.rgb(86, 125, 70),
     2: color.rgb(134, 96, 67),
@@ -62,7 +74,6 @@ class Block(Button):
                 pos = tuple(int(v) for v in self.position)
                 placed_blocks.pop(pos, None)
                 destroy(self)
-
             if key == 'right mouse down':
                 new_pos = self.position + mouse.normal
                 key_pos = tuple(int(v) for v in new_pos)
@@ -70,18 +81,18 @@ class Block(Button):
                     Block(position=new_pos, block_type=game.selected_block)
 
 
-# ── Génération du terrain ───────────────────────────────────────────────────
+# -- Generation du terrain ------------------------------------------------------
 def generate_terrain(size=20):
     for z in range(-size, size):
         for x in range(-size, size):
             if HAS_NOISE:
-                h = int(noise.pnoise2(x * 0.08, z * 0.08, octaves=4, persistence=0.5) * 6) + 3
-                biome = noise.pnoise2(x * 0.02 + 100, z * 0.02 + 100)
+                h = int(_octave_noise(x * 0.08, z * 0.08, _gen) * 6) + 3
+                biome = _octave_noise(x * 0.02 + 100, z * 0.02 + 100, _gen2, octaves=2)
             else:
                 h = int(math.sin(x * 0.3) * 2 + math.cos(z * 0.3) * 2) + 3
                 biome = 0
 
-            surface = 6 if biome > 0.3 else 1
+            surface = 6 if biome > 0.15 else 1
 
             Block(position=(x, h, z), block_type=surface)
             for dy in range(1, max(h + 6, 4)):
@@ -89,8 +100,8 @@ def generate_terrain(size=20):
                 Block(position=(x, h - dy, z), block_type=btype)
 
             if surface == 1 and HAS_NOISE:
-                tree_noise = noise.pnoise2(x * 0.5 + 50, z * 0.5 + 50)
-                if tree_noise > 0.35 and random.random() > 0.85:
+                tree_val = _octave_noise(x * 0.5 + 50, z * 0.5 + 50, _gen, octaves=1)
+                if tree_val > 0.4 and random.random() > 0.85:
                     _make_tree(x, h + 1, z)
 
 
@@ -106,7 +117,7 @@ def _make_tree(x, y, z):
                         Block(position=key, block_type=5)
 
 
-# ── HUD & logique de jeu ────────────────────────────────────────────────────
+# -- HUD & logique de jeu -------------------------------------------------------
 class Game(Entity):
     def __init__(self):
         super().__init__()
@@ -118,18 +129,18 @@ class Game(Entity):
     def _build_hud(self):
         Sky(color=color.rgb(135, 206, 235))
 
-        # Réticule
+        # Reticule
         Entity(parent=camera.ui, model='quad', color=color.white,
                scale=(0.002, 0.018), position=(0, 0, -1))
         Entity(parent=camera.ui, model='quad', color=color.white,
                scale=(0.018, 0.002), position=(0, 0, -1))
 
-        # Fond de la barre de raccourcis
+        # Fond barre de raccourcis
         Entity(parent=camera.ui, model='quad',
                color=color.rgba(0, 0, 0, 140),
                scale=(0.58, 0.065), position=(0, -0.45))
 
-        # Cases colorées
+        # Cases colorees
         self.slots = []
         for i, bt in enumerate(self.hotbar_blocks):
             x = (i - 3.5) * 0.067
@@ -140,7 +151,7 @@ class Game(Entity):
             Text(str(i + 1), parent=camera.ui,
                  position=(x - 0.016, -0.422), scale=0.55, color=color.white)
 
-        # Indicateur de sélection
+        # Indicateur de selection
         self.selector = Entity(parent=camera.ui, model='quad',
                                color=color.rgba(255, 255, 255, 60),
                                scale=0.058,
@@ -152,7 +163,7 @@ class Game(Entity):
                               color=color.white, origin=(0, 0))
 
         # Instructions
-        Text('ZQSD/WASD: Déplacer | Souris: Regarder | Clic G: Casser | '
+        Text('WASD: Deplacer | Souris: Regarder | Clic G: Casser | '
              'Clic D: Placer | 1-8 / Molette: Bloc | ESC: Quitter',
              parent=camera.ui, position=(0, 0.46),
              scale=0.55, color=color.white, origin=(0, 0))
@@ -171,7 +182,7 @@ class Game(Entity):
         self.name_text.text = BLOCK_NAMES.get(self.selected_block, '?')
 
 
-# ── Lancement ───────────────────────────────────────────────────────────────
+# -- Lancement ------------------------------------------------------------------
 game = Game()
 
 player = FirstPersonController(position=(0, 12, 0), jump_height=1.5, speed=5)
